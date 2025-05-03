@@ -6,6 +6,7 @@ import re
 import os
 import matplotlib.pyplot as plt
 from io import BytesIO
+from validadores import ValidadorEntrada
 
 # Configuração do logging
 logging.basicConfig(
@@ -21,53 +22,78 @@ class GastosManager:
         self.cursor = self.conn.cursor()
         self.criar_tabelas()
         self.logger = self.configurar_logger()
+        self.validador = ValidadorEntrada()
 
     def criar_tabelas(self):
         """Cria as tabelas necessárias no banco de dados"""
-        # Tabela de gastos
-        self.cursor.execute('''
-            CREATE TABLE IF NOT EXISTS gastos (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                valor REAL NOT NULL,
-                categoria TEXT NOT NULL,
-                descricao TEXT,
-                data TEXT NOT NULL
-            )
-        ''')
-        
-        # Tabela de receitas
-        self.cursor.execute('''
-            CREATE TABLE IF NOT EXISTS receitas (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                valor REAL NOT NULL,
-                categoria TEXT NOT NULL,
-                descricao TEXT,
-                data TEXT NOT NULL
-            )
-        ''')
-        
-        # Tabela de configurações
-        self.cursor.execute('''
-            CREATE TABLE IF NOT EXISTS configuracoes (
-                chave TEXT PRIMARY KEY,
-                valor TEXT NOT NULL
-            )
-        ''')
-        
-        # Tabela de metas
-        self.cursor.execute('''
-            CREATE TABLE IF NOT EXISTS metas (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                nome TEXT NOT NULL,
-                valor_meta REAL NOT NULL,
-                valor_atual REAL DEFAULT 0,
-                data_limite TEXT,
-                descricao TEXT,
-                status TEXT DEFAULT 'ativa'
-            )
-        ''')
-        
-        self.conn.commit()
+        try:
+            # Cria a tabela de categorias
+            self.cursor.execute('''
+                CREATE TABLE IF NOT EXISTS categorias (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    nome TEXT NOT NULL UNIQUE
+                )
+            ''')
+            
+            # Cria a tabela de gastos com a estrutura correta
+            self.cursor.execute('''
+                CREATE TABLE IF NOT EXISTS gastos (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    valor REAL NOT NULL,
+                    descricao TEXT,
+                    data TEXT NOT NULL,
+                    categoria_id INTEGER NOT NULL,
+                    FOREIGN KEY (categoria_id) REFERENCES categorias(id)
+                )
+            ''')
+            
+            # Cria a tabela de receitas
+            self.cursor.execute('''
+                CREATE TABLE IF NOT EXISTS receitas (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    valor REAL NOT NULL,
+                    descricao TEXT,
+                    data TEXT NOT NULL,
+                    categoria TEXT
+                )
+            ''')
+            
+            # Cria a tabela de configurações
+            self.cursor.execute('''
+                CREATE TABLE IF NOT EXISTS configuracoes (
+                    chave TEXT PRIMARY KEY,
+                    valor TEXT
+                )
+            ''')
+            
+            # Cria a tabela de metas
+            self.cursor.execute('''
+                CREATE TABLE IF NOT EXISTS metas (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    nome TEXT NOT NULL,
+                    valor_meta REAL NOT NULL,
+                    valor_atual REAL DEFAULT 0,
+                    data_limite TEXT,
+                    descricao TEXT,
+                    status TEXT DEFAULT 'ativa'
+                )
+            ''')
+            
+            # Insere categorias padrão se a tabela estiver vazia
+            self.cursor.execute('SELECT COUNT(*) FROM categorias')
+            if self.cursor.fetchone()[0] == 0:
+                categorias_padrao = [
+                    'Alimentação', 'Transporte', 'Moradia', 'Lazer',
+                    'Saúde', 'Educação', 'Vestuário', 'Outros'
+                ]
+                for categoria in categorias_padrao:
+                    self.cursor.execute('INSERT INTO categorias (nome) VALUES (?)', (categoria,))
+            
+            self.conn.commit()
+            return True
+        except Exception as e:
+            print(f"Erro ao criar tabelas: {str(e)}")
+            return False
 
     def configurar_logger(self):
         return logger
@@ -359,59 +385,29 @@ class GastosManager:
             - resposta: string com mensagem de sucesso ou erro
         """
         try:
-            # Padrões de regex para diferentes formatos
-            padroes = [
-                r'gastei\s+(\d+[.,]?\d*)\s+reais?\s+(?:com|em|para|no|na)\s+(.+?)(?:\s+(?:em|no|na|dia|dias|semana|mês|ano|ontem|hoje|amanhã|anteontem|semana passada|mês passado|ano passado|\d{1,2}/\d{1,2}(?:/\d{4})?|\d{1,2} de \w+(?: de \d{4})?))?$',
-                r'gastei\s+(\d+[.,]?\d*)\s+(?:com|em|para|no|na)\s+(.+?)(?:\s+(?:em|no|na|dia|dias|semana|mês|ano|ontem|hoje|amanhã|anteontem|semana passada|mês passado|ano passado|\d{1,2}/\d{1,2}(?:/\d{4})?|\d{1,2} de \w+(?: de \d{4})?))?$',
-                r'gastei\s+R?\$?\s*(\d+[.,]?\d*)\s+(?:com|em|para|no|na)\s+(.+?)(?:\s+(?:em|no|na|dia|dias|semana|mês|ano|ontem|hoje|amanhã|anteontem|semana passada|mês passado|ano passado|\d{1,2}/\d{1,2}(?:/\d{4})?|\d{1,2} de \w+(?: de \d{4})?))?$',
-                r'gastei\s+R?\$?\s*(\d+[.,]?\d*)\s+reais?\s+(?:com|em|para|no|na)\s+(.+?)(?:\s+(?:em|no|na|dia|dias|semana|mês|ano|ontem|hoje|amanhã|anteontem|semana passada|mês passado|ano passado|\d{1,2}/\d{1,2}(?:/\d{4})?|\d{1,2} de \w+(?: de \d{4})?))?$',
-                r'paguei\s+R?\$?\s*(\d+[.,]?\d*)\s+(?:em|com|para|no|na)\s+(.+?)(?:\s+(?:em|no|na|dia|dias|semana|mês|ano|ontem|hoje|amanhã|anteontem|semana passada|mês passado|ano passado|\d{1,2}/\d{1,2}(?:/\d{4})?|\d{1,2} de \w+(?: de \d{4})?))?$',
-                r'foi\s+R?\$?\s*(\d+[.,]?\d*)\s+(?:em|com|para|no|na)\s+(.+?)(?:\s+(?:em|no|na|dia|dias|semana|mês|ano|ontem|hoje|amanhã|anteontem|semana passada|mês passado|ano passado|\d{1,2}/\d{1,2}(?:/\d{4})?|\d{1,2} de \w+(?: de \d{4})?))?$',
-                r'custou\s+R?\$?\s*(\d+[.,]?\d*)\s+(?:em|com|para|no|na)\s+(.+?)(?:\s+(?:em|no|na|dia|dias|semana|mês|ano|ontem|hoje|amanhã|anteontem|semana passada|mês passado|ano passado|\d{1,2}/\d{1,2}(?:/\d{4})?|\d{1,2} de \w+(?: de \d{4})?))?$',
-                r'desembolsei\s+R?\$?\s*(\d+[.,]?\d*)\s+(?:em|com|para|no|na)\s+(.+?)(?:\s+(?:em|no|na|dia|dias|semana|mês|ano|ontem|hoje|amanhã|anteontem|semana passada|mês passado|ano passado|\d{1,2}/\d{1,2}(?:/\d{4})?|\d{1,2} de \w+(?: de \d{4})?))?$'
-            ]
+            # Usa o validador para extrair valor e descrição
+            sucesso, valor, descricao, mensagem_erro = self.validador.extrair_valor_e_descricao(mensagem)
             
-            mensagem = mensagem.lower().strip()
+            if not sucesso:
+                return False, mensagem_erro
             
-            for padrao in padroes:
-                match = re.search(padrao, mensagem)
-                if match:
-                    valor_str = match.group(1).replace(',', '.')
-                    descricao = match.group(2).strip()
-                    
-                    # Extrai a parte da data se existir
-                    data_part = None
-                    if len(match.groups()) > 2 and match.group(3):
-                        data_part = match.group(3).strip()
-                    
-                    try:
-                        valor = float(valor_str)
-                        if valor <= 0:
-                            return False, "O valor do gasto deve ser maior que zero."
-                        
-                        # Tenta determinar a categoria automaticamente
-                        categoria = self._determinar_categoria(descricao)
-                        
-                        # Processa a data se existir
-                        data = None
-                        if data_part:
-                            data = self._processar_data(data_part)
-                        
-                        # Adiciona o gasto
-                        if self.adicionar_gasto(valor, descricao, categoria, data):
-                            data_str = f" em {data_part}" if data_part else ""
-                            return True, f"Gasto registrado: R${valor:.2f} com {descricao}{data_str} (categoria: {categoria})"
-                        else:
-                            return False, "Erro ao registrar o gasto."
-                            
-                    except ValueError:
-                        return False, "Valor inválido. Use números para o valor do gasto."
+            # Tenta determinar a categoria automaticamente
+            categoria = self._determinar_categoria(descricao)
             
-            return False, "Formato inválido. Use: 'Gastei X reais com Y' ou variações similares."
+            # Valida a categoria
+            sucesso_cat, categoria = self.validador.validar_categoria(categoria, self.get_categorias())
+            if not sucesso_cat:
+                return False, categoria  # categoria contém a mensagem de erro
+            
+            # Adiciona o gasto
+            if self.adicionar_gasto(float(valor), descricao, categoria):
+                return True, f"✅ Gasto registrado: R${valor:.2f} - {descricao} (Categoria: {categoria})"
+            else:
+                return False, "❌ Erro ao registrar o gasto. Tente novamente."
             
         except Exception as e:
             self.logger.error(f"Erro ao processar mensagem: {e}")
-            return False, "Erro ao processar a mensagem."
+            return False, "❌ Erro ao processar a mensagem. Tente novamente."
 
     def _determinar_categoria(self, descricao):
         """

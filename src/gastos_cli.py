@@ -1,55 +1,52 @@
 from gastos_manager import GastosManager
-import sys
+from validadores import ValidadorEntrada
 
 def main():
     gm = GastosManager()
+    validador = ValidadorEntrada()
     
     try:
-        print("\nBem-vindo ao Gerenciador de Gastos!")
-        print("Digite seus gastos no formato 'gastei X reais com Y'")
-        print("Comandos disponíveis:")
-        print("- 'resumo': ver resumo dos gastos")
-        print("- 'categorias': listar todas as categorias")
-        print("- 'limpar': limpar histórico")
-        print("- 'sair': encerrar o programa")
-        print("- 'ajuda': mostrar esta mensagem novamente")
-        
         while True:
-            comando = input("\n> ").strip().lower()
+            comando = input("\nDigite um comando ou um gasto (ex: gastei 50 reais com almoço): ").strip()
             
-            if comando == 'sair':
-                print("Até logo!")
+            if comando.lower() in ['sair', 'exit', 'quit']:
+                print("Até logo! 👋")
                 break
                 
-            elif comando == 'ajuda':
-                print("\nComo usar:")
-                print("- Digite seus gastos normalmente: 'gastei 50 reais com almoço'")
-                print("- 'resumo': ver resumo dos gastos")
-                print("- 'categorias': listar todas as categorias disponíveis")
-                print("- 'limpar': limpar histórico")
-                print("- 'sair': encerrar o programa")
-                print("- 'ajuda': mostrar esta mensagem")
+            elif comando.lower() in ['ajuda', 'help', '?']:
+                print("\nComandos disponíveis:")
+                print("- resumo: ver resumo dos gastos")
+                print("- categorias: listar todas as categorias")
+                print("- limpar: limpar histórico de gastos")
+                print("- sair: encerrar o programa")
+                print("\nPara registrar um gasto, use:")
+                print("- gastei X reais com Y")
+                print("- paguei X em Y")
+                print("- comprei X por Y")
+                print("\nExemplos:")
+                print("- gastei 50 reais com almoço")
+                print("- paguei 150 de conta de luz")
+                print("- comprei 30 de mercado")
                 
-            elif comando == 'resumo':
-                resumo, total = gm.get_resumo()
-                print(f"\nTotal gasto: R${total:.2f}")
-                print("\nResumo por categoria:")
+            elif comando.lower() == 'resumo':
+                resumo = gm.get_resumo()
+                print("\n📊 Resumo de Gastos:")
                 for categoria, valor, percentual in resumo:
-                    print(f"{categoria}: R${valor:.2f} ({percentual:.1f}%)")
+                    print(f"- {categoria}: R${valor:.2f} ({percentual:.1f}%)")
                     
-            elif comando == 'categorias':
+            elif comando.lower() == 'categorias':
                 categorias = gm.get_categorias()
-                print("\nCategorias disponíveis:")
+                print("\n📋 Categorias Disponíveis:")
                 for i, categoria in enumerate(categorias, 1):
                     print(f"{i}. {categoria}")
                     
-            elif comando == 'limpar':
+            elif comando.lower() == 'limpar':
                 confirmacao = input("\nTem certeza que deseja limpar todo o histórico de gastos? (s/n): ")
                 if confirmacao.lower() == 's':
                     if gm.limpar_historico():
-                        print("Histórico de gastos limpo com sucesso!")
+                        print("✅ Histórico de gastos limpo com sucesso!")
                     else:
-                        print("Erro ao limpar histórico de gastos.")
+                        print("❌ Erro ao limpar histórico de gastos.")
                 else:
                     print("Operação cancelada.")
                     
@@ -60,5 +57,5 @@ def main():
     finally:
         gm.close()
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main() 

@@ -7,6 +7,10 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from collections import defaultdict
 from datetime import datetime, timedelta
 import logging
+from validadores import ValidadorEntrada
+from resumo_manager import ResumoManager
+import telegram
+import time
 
 # Configurar logging
 logging.basicConfig(
@@ -15,9 +19,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Criar pasta data se não existir
+if not os.path.exists('data'):
+    os.makedirs('data')
+
 # Configurar a API do Gemini
 GOOGLE_API_KEY = "AIzaSyAyQyCQPAkR5yjGkLgz-hOWqzpH-WALRVY"
-TELEGRAM_TOKEN = "7527630621:AAFVK10miTDtB1ivqZA5HCshQREKaBNs1es"
+TELEGRAM_TOKEN = "7806097135:AAFb40DQgSGiu7uIk6trkdFWISW-j37Keyg"
 genai.configure(api_key=GOOGLE_API_KEY)
 
 # Configurar o modelo
@@ -38,15 +46,24 @@ aguardando_nome = set()
 # Dicionário para armazenar estado de espera por meta
 aguardando_meta = {}
 
+# Adicione um controle de estado para saber se o usuário está no fluxo de envio de comprovante
+aguardando_comprovante = set()
+
+# Adicione um dicionário para rastrear o último tipo de mensagem enviada para cada usuário
+ultimo_estado_usuario = {}
+
 # Configuração do histórico
 MAX_HISTORICO = 10  # Número máximo de mensagens no histórico
-TEMPO_EXPIRACAO = timedelta(hours=24)  # Tempo para expirar o histórico
+TEMPO_EXPIRACAO = timedelta(hours=12)  # Tempo para expirar o histórico
+
+# Inicializa o gerenciador de resumos
+resumo_manager = ResumoManager()
 
 def get_gastos_manager(user_id):
     """Obtém ou cria uma instância do GastosManager para um usuário"""
     if user_id not in gastos_managers:
-        # Cria um banco de dados específico para o usuário
-        db_name = f'gastos_{user_id}.db'
+        # Cria um banco de dados específico para o usuário na pasta data
+        db_name = f'data/gastos_{user_id}.db'
         gastos_managers[user_id] = GastosManager(db_name)
     return gastos_managers[user_id]
 
@@ -208,11 +225,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         welcome_message = """
         🎉 Bem-vindo ao FinBot! 🤖
 
-        Eu sou seu assistente financeiro pessoal, e estou aqui para te ajudar a organizar suas finanças de forma simples e inteligente.
-
-        Antes de começarmos, qual é o seu nome?
+        Qual é o seu nome?
         """
-        await update.message.reply_text(welcome_message, parse_mode='Markdown')
+        await update.message.reply_text(welcome_message)
     else:
         # Verifica se já tem salário registrado
         salario = gm.get_salario()
@@ -224,9 +239,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             welcome_message = f"""
             Olá {nome}! 👋
 
-            Que bom te ver por aqui! Para podermos começar a organizar suas finanças, preciso saber seu salário mensal.
-
-            💰 Por favor, digite seu salário (apenas números, por exemplo: 3000)
+            Qual é seu salário mensal?
+            (apenas números, exemplo: 3000)
             """
             await update.message.reply_text(welcome_message)
         else:
@@ -243,9 +257,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 welcome_message = f"""
                 Olá {nome}! 👋
 
-                Que bom te ver de volta! Vamos definir suas metas financeiras?
-
-                🎯 Qual é o nome da sua primeira meta? (exemplo: "Viagem para a praia")
+                Vamos criar sua primeira meta?
+                Qual é o nome da meta?
+                (exemplo: "Viagem para a praia")
                 """
                 await update.message.reply_text(welcome_message)
             else:
@@ -269,30 +283,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 welcome_message = f"""
                 Olá {nome}! 👋
 
-                Que bom te ver de volta! Estou aqui para te ajudar a manter suas finanças organizadas.
-
-                📱 Como posso te ajudar hoje?
-
-                💰 Para registrar gastos:
-                • "gastei 50 reais com almoço"
-                • "paguei 100 no mercado"
-                • "comprei um presente por 80"
-
-                💵 Para registrar receitas:
-                • "ganhei 100 reais com freela"
-                • "recebi 50 de presente"
-                • "consegui 200 com vendas"
-
-                📊 Comandos disponíveis:
-                /salario - Ver ou alterar seu salário
-                /resumo - Ver resumo dos gastos
-                /resumodetalhado - Ver análise detalhada
-                /categorias - Listar categorias
-                /metas - Gerenciar metas financeiras
-                /limpar - Limpar histórico
-                /ajuda - Ver esta mensagem
-
-                💡 Dica: Você pode me perguntar sobre finanças, investimentos, orçamento e muito mais!
+                Como posso te ajudar hoje?
                 """
                 await update.message.reply_text(welcome_message, parse_mode='Markdown', reply_markup=reply_markup)
 
@@ -311,54 +302,45 @@ async def ajuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [
             InlineKeyboardButton("⚙️ Configurações", callback_data="ajuda_config"),
             InlineKeyboardButton("❓ Outros", callback_data="ajuda_outros")
+        ],
+        [
+            InlineKeyboardButton("🎉 Acesso Ilimitado", callback_data="acesso_ilimitado")
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     help_message = """
-    *📋 Comandos e Funcionalidades Disponíveis*
+    *📋 Comandos Disponíveis*
 
-    *💰 Registro de Gastos*
-    • Use frases como:
-      - "gastei 50 reais com almoço"
-      - "paguei 100 no mercado"
-      - "comprei um presente por 80"
-    • O bot identifica automaticamente a categoria
-    • Você pode especificar a data: "gastei 50 com almoço ontem"
+    *💰 Gastos*
+    • "gastei 50 com almoço"
+    • "paguei 100 no mercado"
+    • "comprei um presente por 80"
 
-    *💵 Registro de Receitas*
-    • Use frases como:
-      - "ganhei 100 reais com freela"
-      - "recebi 50 de presente"
-      - "consegui 200 com vendas"
-    • Também aceita datas: "ganhei 100 com freela semana passada"
+    *💵 Receitas*
+    • "ganhei 100 com freela"
+    • "recebi 50 de presente"
+    • "consegui 200 com vendas"
 
-    *📊 Comandos Principais*
-    /salario - Ver ou alterar seu salário
-    /resumo - Ver resumo dos gastos
-    /resumodetalhado - Ver análise detalhada
-    /categorias - Listar categorias
-    /metas - Gerenciar metas financeiras
+    *📊 Comandos*
+    /salario - Salário
+    /resumo - Resumo básico
+    /resumodetalhado - Análise completa
+    /categorias - Lista de categorias
+    /metas - Gerenciar metas
     /limpar - Limpar histórico
 
-    🎯 Metas Financeiras
-    • Crie metas com nome, valor e data limite
+    *🎯 Metas*
+    • Crie metas com nome e valor
     • Acompanhe seu progresso
-    • Receba lembretes e sugestões
+    • Defina data limite
 
-    💡 Dicas
-    • Use emojis para facilitar a leitura
-    • Mantenha suas categorias organizadas
-    • Defina metas realistas
-    • Revise seu resumo semanalmente
-
-    🤖 IA Financeira
+    *🤖 IA Financeira*
     • Pergunte sobre investimentos
     • Peça dicas de economia
     • Consulte sobre orçamento
-    • Tire dúvidas financeiras
 
-    Clique nos botões abaixo para mais detalhes sobre cada tópico!
+    Clique nos botões para mais detalhes!
     """
     await update.message.reply_text(help_message, parse_mode='Markdown', reply_markup=reply_markup)
 
@@ -829,7 +811,60 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(message, parse_mode='Markdown')
             
     elif query.data == "ajuda":
-        await ajuda(update, context)
+        # Cria botões inline para seções de ajuda
+        keyboard = [
+            [
+                InlineKeyboardButton("💰 Gastos", callback_data="ajuda_gastos"),
+                InlineKeyboardButton("💵 Receitas", callback_data="ajuda_receitas")
+            ],
+            [
+                InlineKeyboardButton("🎯 Metas", callback_data="ajuda_metas"),
+                InlineKeyboardButton("📊 Resumos", callback_data="ajuda_resumos")
+            ],
+            [
+                InlineKeyboardButton("⚙️ Configurações", callback_data="ajuda_config"),
+                InlineKeyboardButton("❓ Outros", callback_data="ajuda_outros")
+            ],
+            [
+                InlineKeyboardButton("🎉 Acesso Ilimitado", callback_data="acesso_ilimitado")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        help_message = """
+        *📋 Comandos Disponíveis*
+
+        *💰 Gastos*
+        • "gastei 50 com almoço"
+        • "paguei 100 no mercado"
+        • "comprei um presente por 80"
+
+        *💵 Receitas*
+        • "ganhei 100 com freela"
+        • "recebi 50 de presente"
+        • "consegui 200 com vendas"
+
+        *📊 Comandos*
+        /salario - Salário
+        /resumo - Resumo básico
+        /resumodetalhado - Análise completa
+        /categorias - Lista de categorias
+        /metas - Gerenciar metas
+        /limpar - Limpar histórico
+
+        *🎯 Metas*
+        • Crie metas com nome e valor
+        • Acompanhe seu progresso
+        • Defina data limite
+
+        *🤖 IA Financeira*
+        • Pergunte sobre investimentos
+        • Peça dicas de economia
+        • Consulte sobre orçamento
+
+        Clique nos botões para mais detalhes!
+        """
+        await query.edit_message_text(help_message, parse_mode='Markdown', reply_markup=reply_markup)
         
     elif query.data == "configuracoes":
         await query.edit_message_text(
@@ -960,59 +995,148 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Use /ajuda para ver esta mensagem novamente",
             parse_mode='Markdown'
         )
+        
+    elif query.data == "acesso_ilimitado":
+        # Cria botões para o menu de acesso ilimitado
+        keyboard = [
+            [
+                InlineKeyboardButton("📱 Enviar Comprovante", callback_data="enviar_comprovante"),
+                InlineKeyboardButton("❓ Dúvidas", callback_data="duvidas_pagamento")
+            ],
+            [
+                InlineKeyboardButton("🔙 Voltar", callback_data="ajuda")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            "*🎉 Acesso Ilimitado ao FinBot*\n\n"
+            "💰 *Valor:* R$19,99 (apenas uma vez)\n\n"
+            "✨ *Benefícios:*\n"
+            "• Acesso vitalício ao bot\n"
+            "• Todas as atualizações futuras\n"
+            "• Suporte prioritário\n"
+            "• Recursos exclusivos\n\n"
+            "🔑 *Chave PIX:*\n"
+            "`123.456.789-00`\n\n"
+            "📝 *Após o pagamento:*\n"
+            "1. Clique em 'Enviar Comprovante'\n"
+            "2. Envie o comprovante de pagamento\n"
+            "3. Aguarde a confirmação\n\n"
+            "💡 *Dúvidas?* Clique no botão abaixo",
+            parse_mode='Markdown',
+            reply_markup=reply_markup
+        )
+        
+    elif query.data == "enviar_comprovante":
+        aguardando_comprovante.add(user_id)
+        ultimo_estado_usuario[user_id] = 'aguardando_comprovante'
+        await query.edit_message_text(
+            "*📱 Envio de Comprovante*\n\n"
+            "Por favor, envie o comprovante de pagamento PIX.\n\n"
+            "⚠️ *Importante:*\n"
+            "• Envie apenas imagens ou PDF\n"
+            "• Aguarde nossa confirmação\n"
+            "• O processamento pode levar até 24h\n\n"
+            "🔙 Use /ajuda para voltar ao menu",
+            parse_mode='Markdown'
+        )
+        return
+        
+    elif query.data == "duvidas_pagamento":
+        await query.edit_message_text(
+            "*❓ Dúvidas sobre Pagamento*\n\n"
+            "📝 *Perguntas Frequentes:*\n\n"
+            "1. *O pagamento é único?*\n"
+            "Sim! Apenas R$19,99 e você terá acesso vitalício.\n\n"
+            "2. *Quais as formas de pagamento?*\n"
+            "Aceitamos apenas PIX no momento.\n\n"
+            "3. *Como recebo o acesso?*\n"
+            "Após confirmarmos seu pagamento, seu acesso será liberado automaticamente.\n\n"
+            "4. *E as atualizações futuras?*\n"
+            "Todas as atualizações serão gratuitas para você.\n\n"
+            "5. *Posso transferir meu acesso?*\n"
+            "Não, o acesso é pessoal e intransferível.\n\n"
+            "🔙 Use /ajuda para voltar ao menu",
+            parse_mode='Markdown'
+        )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Manipula mensagens de texto"""
-    gm = get_gastos_manager(update.effective_user.id)
-    message = update.message.text.lower().strip()
+    message = update.message.text
     user_id = update.effective_user.id
-    nome = gm.get_nome_usuario()
+    nome = update.effective_user.first_name
     
-    # Verifica se está aguardando nome
-    if user_id in aguardando_nome:
-        if len(message) < 2:
-            await update.message.reply_text("❌ Por favor, digite um nome válido (mínimo 2 caracteres).")
+    # Verifica se a mensagem contém um documento (comprovante)
+    if (user_id in aguardando_comprovante or ultimo_estado_usuario.get(user_id) == 'aguardando_comprovante') and update.message.document:
+        if update.message.document.mime_type == 'application/pdf':
+            comprovantes_dir = os.path.join('data', 'comprovantes')
+            if not os.path.exists(comprovantes_dir):
+                os.makedirs(comprovantes_dir)
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            nome_limpo = ''.join(c for c in nome if c.isalnum() or c in (' ', '_')).replace(' ', '_')
+            filename = f'comprovante_{user_id}_{nome_limpo}_{timestamp}.pdf'
+            file_path = os.path.join(comprovantes_dir, filename)
+            try:
+                file = await context.bot.get_file(update.message.document.file_id)
+                await file.download_to_drive(file_path)
+                log_file = os.path.join(comprovantes_dir, 'comprovantes_log.txt')
+                with open(log_file, 'a', encoding='utf-8') as f:
+                    log_entry = f"{timestamp} - Usuário: {user_id} - Nome: {nome} - Arquivo: {filename}\n"
+                    f.write(log_entry)
+                    logger.info(f"Log atualizado: {log_entry}")
+                aguardando_comprovante.discard(user_id)
+                ultimo_estado_usuario[user_id] = None
+                await update.message.reply_text(
+                    "✅ Comprovante recebido e salvo!\n\n"
+                    "📝 *Status:* Em análise\n"
+                    "⏳ *Prazo:* Até 24 horas\n\n"
+                    "🔔 Você receberá uma mensagem quando seu acesso for liberado.\n"
+                    "Obrigado pela preferência! 😊",
+                    parse_mode='Markdown'
+                )
+            except Exception as e:
+                logger.error(f"Erro ao salvar comprovante: {str(e)}")
+                await update.message.reply_text(
+                    "❌ Desculpe, ocorreu um erro ao salvar seu comprovante.\n"
+                    "Por favor, tente novamente ou entre em contato com o suporte.",
+                    parse_mode='Markdown'
+                )
             return
             
-        if gm.definir_nome_usuario(message):
-            aguardando_nome.remove(user_id)
-            aguardando_salario.add(user_id)
-            await update.message.reply_text(
-                f"Olá {message}! 👋\n\n"
-                "Para começar, preciso saber seu salário mensal para poder te ajudar melhor.\n"
-                "Por favor, digite seu salário (apenas números, por exemplo: 3000)"
-            )
-        else:
-            await update.message.reply_text("❌ Erro ao registrar nome. Por favor, tente novamente.")
-        return
+    # Obtém o gerenciador de gastos para o usuário
+    gm = get_gastos_manager(user_id)
+    validador = ValidadorEntrada()
     
     # Verifica se está aguardando salário
     if user_id in aguardando_salario:
         try:
-            # Tenta converter a mensagem para float
-            salario = float(message.replace(',', '.'))
+            # Usa o validador para normalizar o valor
+            sucesso, valor, mensagem = validador.normalizar_valor(message)
             
-            if salario <= 0:
-                await update.message.reply_text("❌ O salário deve ser maior que zero. Por favor, digite um valor válido.")
+            if not sucesso:
+                await update.message.reply_text(f"❌ {mensagem}. Por favor, digite um valor válido.")
                 return
             
             # Define o salário
-            if gm.definir_salario(salario):
+            if gm.definir_salario(float(valor)):
                 aguardando_salario.remove(user_id)
                 # Adiciona usuário à lista de espera por meta
                 aguardando_meta[user_id] = {
                     'etapa': 'nome_meta',
                     'dados': {}
                 }
+                # Atualiza o resumo
+                resumo_manager.atualizar_resumo(user_id, nome)
                 await update.message.reply_text(
-                    f"✅ Salário registrado com sucesso: R${salario:.2f}\n\n"
+                    f"✅ Salário registrado com sucesso: R${valor:.2f}\n\n"
                     f"Agora vamos definir suas metas financeiras!\n\n"
                     "🎯 Qual é o nome da sua primeira meta? (exemplo: 'Viagem para a praia')"
                 )
             else:
                 await update.message.reply_text("❌ Erro ao registrar salário. Por favor, tente novamente.")
-        except ValueError:
-            await update.message.reply_text("❌ Por favor, digite apenas números para o salário (exemplo: 3000)")
+        except Exception as e:
+            await update.message.reply_text("❌ Erro ao processar o salário. Por favor, tente novamente.")
         return
     
     # Verifica se está aguardando definição de meta
@@ -1064,39 +1188,66 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Cria a meta
             if gm.definir_meta(dados['nome'], dados['valor'], data_limite):
                 del aguardando_meta[user_id]
+                # Atualiza o resumo
+                resumo_manager.atualizar_resumo(user_id, nome)
                 await update.message.reply_text(
                     f"✅ Meta '{dados['nome']}' criada com sucesso!\n\n"
                     f"💰 Valor: R${dados['valor']:.2f}\n"
                     f"📅 Data limite: {data_limite if data_limite else 'Não definida'}\n\n"
                     "💡 Para adicionar valores a esta meta, você pode:\n"
                     "• Usar o comando /metas atualizar\n"
-                    "• Ou digitar 'Juntei X reais para a meta Y'"
+                    "• Ou digitar 'Juntei X reais para a meta Y'\n\n"
+                    "Utilize /ajuda para voltar ao menu."
                 )
             else:
                 await update.message.reply_text("❌ Erro ao criar meta. Tente novamente.")
             return
     
+    # Verifica se está aguardando nome
+    if user_id in aguardando_nome:
+        # Define o nome do usuário
+        if gm.definir_nome_usuario(message):
+            aguardando_nome.remove(user_id)
+            # Adiciona usuário à lista de espera por salário
+            aguardando_salario.add(user_id)
+            # Atualiza o resumo
+            resumo_manager.atualizar_resumo(user_id, message)
+            await update.message.reply_text(
+                f"✅ Nome registrado com sucesso: {message}\n\n"
+                f"Para podermos começar a organizar suas finanças, preciso saber seu salário mensal.\n\n"
+                "💰 Por favor, digite seu salário (apenas números, por exemplo: 3000)"
+            )
+        else:
+            await update.message.reply_text("❌ Erro ao registrar nome. Por favor, tente novamente.")
+        return
+    
     # Primeiro tenta processar como contribuição para meta
     sucesso, resposta = gm.processar_mensagem_meta(message)
     if sucesso:
-        await update.message.reply_text(resposta)
+        # Atualiza o resumo
+        resumo_manager.atualizar_resumo(user_id, nome)
+        await update.message.reply_text(resposta + "\n\nUtilize /ajuda para voltar ao menu.")
         return
     
     # Depois tenta processar como receita
     sucesso, resposta = gm.processar_mensagem_receita(message)
     if sucesso:
-        await update.message.reply_text(resposta)
+        # Atualiza o resumo
+        resumo_manager.atualizar_resumo(user_id, nome)
+        await update.message.reply_text(resposta + "\n\nUtilize /ajuda para voltar ao menu.")
         return
     
     # Depois tenta processar como gasto
     sucesso, resposta = gm.processar_mensagem_gasto(message)
     if sucesso:
-        await update.message.reply_text(resposta)
+        # Atualiza o resumo
+        resumo_manager.atualizar_resumo(user_id, nome)
+        await update.message.reply_text(resposta + "\n\nUtilize /ajuda para voltar ao menu.")
         return
     
     # Se não for nenhum dos casos acima, envia para a IA
     resposta = await processar_comando_ia(message, user_id, nome)
-    await update.message.reply_text(resposta)
+    await update.message.reply_text(resposta + "\n\nUtilize /ajuda para voltar ao menu.")
 
 def main():
     """Inicia o bot"""
@@ -1120,9 +1271,29 @@ def main():
     # Adicionar handler para mensagens de texto
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    # Iniciar o bot
-    print("🤖 Bot iniciado! Pressione Ctrl+C para parar.")
-    application.run_polling()
+    # Iniciar o bot com retentativas
+    max_retries = 3
+    retry_delay = 5  # segundos
+    
+    for attempt in range(max_retries):
+        try:
+            print(f"🤖 Tentando iniciar o bot (tentativa {attempt + 1}/{max_retries})...")
+            application.run_polling()
+            break
+        except telegram.error.TimedOut:
+            if attempt < max_retries - 1:
+                print(f"❌ Timeout na conexão. Tentando novamente em {retry_delay} segundos...")
+                time.sleep(retry_delay)
+            else:
+                print("❌ Falha ao conectar após várias tentativas. Verifique sua conexão com a internet.")
+        except Exception as e:
+            print(f"❌ Erro ao iniciar o bot: {str(e)}")
+            if attempt < max_retries - 1:
+                print(f"Tentando novamente em {retry_delay} segundos...")
+                time.sleep(retry_delay)
+            else:
+                print("❌ Falha ao iniciar o bot após várias tentativas.")
+            break
 
 if __name__ == '__main__':
     main() 
