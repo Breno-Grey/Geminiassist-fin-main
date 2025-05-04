@@ -1,9 +1,8 @@
 python-telegram-bot==20.7
 python-dotenv==1.0.0
 google-generativeai==0.3.2
-gunicorn
+gunicorn==21.2.0
 matplotlib==3.8.2
 numpy==1.26.3
 aiohttp==3.9.3
-aiohttp-gunicorn==0.1.0
 python-multipart==0.0.6
