@@ -1,6 +1,5 @@
 import matplotlib
 matplotlib.use('Agg')  # backend que não precisa de interface gráfica
-matplotlib.rcParams['cachedir'] = '/tmp'  # usa /tmp como cache (tem permissão)
 import sqlite3
 from datetime import datetime, timedelta
 import logging
