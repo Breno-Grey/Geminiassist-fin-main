@@ -1258,12 +1258,6 @@ async def health_check(request):
     """Endpoint de health check para o Railway"""
     return web.Response(text="Bot is running!")
 
-async def init_app():
-    """Inicializa a aplicação web"""
-    app = web.Application()
-    app.router.add_get('/health', health_check)
-    return app
-
 def run():
     """Função para o Gunicorn iniciar"""
     # Inicializa o bot
@@ -1287,12 +1281,19 @@ def run():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     # Iniciar o bot em background
-    asyncio.create_task(application.initialize())
-    asyncio.create_task(application.start())
-    asyncio.create_task(application.run_polling())
-
-    # Inicializa e retorna a aplicação web
-    return init_app()
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    # Inicializa a aplicação web
+    app = web.Application()
+    app.router.add_get('/health', health_check)
+    
+    # Inicia o bot em background
+    loop.create_task(application.initialize())
+    loop.create_task(application.start())
+    loop.create_task(application.run_polling())
+    
+    return app
 
 if __name__ == '__main__':
-    asyncio.run(main()) 
+    asyncio.run(run()) 
