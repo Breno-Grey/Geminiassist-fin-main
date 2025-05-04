@@ -1,5 +1,5 @@
-from gastos_manager import GastosManager
-from validadores import ValidadorEntrada
+from src.gastos_manager import GastosManager
+from src.validadores import ValidadorEntrada
 
 def main():
     gm = GastosManager()
