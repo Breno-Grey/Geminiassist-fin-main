@@ -1,1 +1,1 @@
-web: gunicorn src.bot:app
+web: python src.StartBot.py
