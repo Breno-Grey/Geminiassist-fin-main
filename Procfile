@@ -1,1 +1,1 @@
-web: python src/StartBot.py 
+web: gunicorn src.StartBot:main --bind 0.0.0.0:$PORT 

@@ -1314,5 +1314,9 @@ async def main():
                 logger.error("❌ Falha ao iniciar o bot após várias tentativas.")
             break
 
+def run():
+    """Função para o Gunicorn iniciar"""
+    asyncio.run(main())
+
 if __name__ == '__main__':
-    asyncio.run(main()) 
+    run() 
