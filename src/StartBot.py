@@ -1,4 +1,4 @@
-from gastos_manager import GastosManager
+from src.gastos_manager import GastosManager
 import google.generativeai as genai
 import os
 from dotenv import load_dotenv
@@ -7,12 +7,16 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from collections import defaultdict
 from datetime import datetime, timedelta
 import logging
-from validadores import ValidadorEntrada
-from resumo_manager import ResumoManager
+from src.validadores import ValidadorEntrada
+from src.resumo_manager import ResumoManager
 import telegram
 import time
 import asyncio
 from aiohttp import web
+from src.gemini_chat import *
+from src.gastos_ia import *
+from src.finbot_telegram import *
+from src.gastos_cli import *
 
 # Carregar variáveis de ambiente
 load_dotenv()
