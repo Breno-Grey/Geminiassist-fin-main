@@ -1,1 +1,1 @@
-web: gunicorn --bind 0.0.0.0:$PORT src.StartBot:run 
+/opt/venv/bin/gunicorn --worker-class aiohttp.worker.GunicornWebWorker --bind 0.0.0.0:$PORT src.StartBot:run
