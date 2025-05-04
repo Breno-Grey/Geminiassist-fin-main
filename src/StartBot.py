@@ -1258,9 +1258,15 @@ async def health_check(request):
     """Endpoint de health check para o Railway"""
     return web.Response(text="Bot is running!")
 
-async def main():
-    """Inicia o bot e o servidor web"""
-    # Criar a aplicação do Telegram
+async def init_app():
+    """Inicializa a aplicação web"""
+    app = web.Application()
+    app.router.add_get('/health', health_check)
+    return app
+
+def run():
+    """Função para o Gunicorn iniciar"""
+    # Inicializa o bot
     application = Application.builder().token(TELEGRAM_TOKEN).build()
 
     # Adicionar handlers
@@ -1280,43 +1286,13 @@ async def main():
     # Adicionar handler para mensagens de texto
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    # Criar servidor web para health check
-    app = web.Application()
-    app.router.add_get('/health', health_check)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', int(os.getenv('PORT', 8000)))
-    await site.start()
+    # Iniciar o bot em background
+    asyncio.create_task(application.initialize())
+    asyncio.create_task(application.start())
+    asyncio.create_task(application.run_polling())
 
-    # Iniciar o bot com retentativas
-    max_retries = 3
-    retry_delay = 5  # segundos
-    
-    for attempt in range(max_retries):
-        try:
-            logger.info(f"🤖 Tentando iniciar o bot (tentativa {attempt + 1}/{max_retries})...")
-            await application.initialize()
-            await application.start()
-            await application.run_polling()
-            break
-        except telegram.error.TimedOut:
-            if attempt < max_retries - 1:
-                logger.warning(f"❌ Timeout na conexão. Tentando novamente em {retry_delay} segundos...")
-                await asyncio.sleep(retry_delay)
-            else:
-                logger.error("❌ Falha ao conectar após várias tentativas. Verifique sua conexão com a internet.")
-        except Exception as e:
-            logger.error(f"❌ Erro ao iniciar o bot: {str(e)}")
-            if attempt < max_retries - 1:
-                logger.info(f"Tentando novamente em {retry_delay} segundos...")
-                await asyncio.sleep(retry_delay)
-            else:
-                logger.error("❌ Falha ao iniciar o bot após várias tentativas.")
-            break
-
-def run():
-    """Função para o Gunicorn iniciar"""
-    asyncio.run(main())
+    # Inicializa e retorna a aplicação web
+    return init_app()
 
 if __name__ == '__main__':
-    run() 
+    asyncio.run(main()) 

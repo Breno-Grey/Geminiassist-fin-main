@@ -1,1 +1,1 @@
-web: gunicorn src.StartBot:main --bind 0.0.0.0:$PORT 
+web: gunicorn --bind 0.0.0.0:$PORT src.StartBot:run 
