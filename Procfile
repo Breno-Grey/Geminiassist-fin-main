@@ -1,1 +1,1 @@
-web: python src.StartBot.py
+web: python src/StartBot.py 

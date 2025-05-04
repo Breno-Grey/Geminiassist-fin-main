@@ -1,50 +1,47 @@
-# Telegram Bot
+# Telegram Bot for Railway
 
-Um bot do Telegram simples que pode ser hospedado no Railway.app.
-
-## Funcionalidades
-
-- Comando `/start` - Inicia o bot
-- Comando `/help` - Mostra ajuda
-- Comando `/ping` - Verifica se o bot está online
-- Ecoa mensagens de texto
-
-## Configuração
-
-1. Clone este repositório
-2. Crie um arquivo `.env` baseado no `.env.example`:
-   ```
-   TELEGRAM_TOKEN=seu_token_aqui
-   ```
-3. Obtenha um token do BotFather no Telegram
-4. Substitua `seu_token_aqui` pelo token real
-
-## Deploy no Railway.app
-
-1. Crie uma conta no [Railway.app](https://railway.app)
-2. Conecte seu repositório GitHub
-3. Adicione as variáveis de ambiente:
-   - `TELEGRAM_TOKEN`: Seu token do BotFather
-4. O deploy será automático
+Este é um bot do Telegram configurado para rodar 24/7 no Railway.app.
 
 ## Estrutura do Projeto
 
 ```
 .
-├── Procfile          # Configuração do Railway
-├── requirements.txt  # Dependências Python
 ├── src/
-│   └── bot.py       # Código principal do bot
-└── .env             # Variáveis de ambiente (não versionado)
+│   └── StartBot.py      # Código principal do bot
+├── data/                # Dados do bot
+├── config/             # Arquivos de configuração
+├── requirements.txt    # Dependências Python
+├── Procfile           # Configuração do Railway
+└── .env.example       # Exemplo de variáveis de ambiente
 ```
 
-## Desenvolvimento Local
+## Configuração
 
-1. Instale as dependências:
-   ```bash
-   pip install -r requirements.txt
-   ```
-2. Execute o bot:
-   ```bash
-   python src/bot.py
-   ``` 
+1. Clone este repositório
+2. Copie `.env.example` para `.env` e preencha as variáveis:
+   - `TELEGRAM_TOKEN`: Token do seu bot do Telegram
+   - `GOOGLE_API_KEY`: Chave da API do Google (para Gemini)
+   - `PORT`: Porta para o Railway (geralmente 8000)
+
+## Deploy no Railway
+
+1. Crie uma conta no [Railway.app](https://railway.app)
+2. Conecte seu repositório GitHub
+3. Configure as variáveis de ambiente no painel do Railway
+4. O deploy será automático após o push
+
+## Comandos do Bot
+
+- `/start` - Inicia o bot
+- `/ajuda` - Mostra ajuda
+- `/salario` - Gerencia salário
+- `/resumo` - Mostra resumo financeiro
+- `/metas` - Gerencia metas financeiras
+
+## Manutenção
+
+O bot é configurado para:
+- Reiniciar automaticamente em caso de falhas
+- Manter-se online 24/7
+- Logar erros para debug
+- Gerenciar conexões de forma eficiente 

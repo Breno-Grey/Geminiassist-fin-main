@@ -11,6 +11,11 @@ from validadores import ValidadorEntrada
 from resumo_manager import ResumoManager
 import telegram
 import time
+import asyncio
+from aiohttp import web
+
+# Carregar variáveis de ambiente
+load_dotenv()
 
 # Configurar logging
 logging.basicConfig(
@@ -24,8 +29,8 @@ if not os.path.exists('data'):
     os.makedirs('data')
 
 # Configurar a API do Gemini
-GOOGLE_API_KEY = "AIzaSyAyQyCQPAkR5yjGkLgz-hOWqzpH-WALRVY"
-TELEGRAM_TOKEN = "7806097135:AAFb40DQgSGiu7uIk6trkdFWISW-j37Keyg"
+GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
+TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 genai.configure(api_key=GOOGLE_API_KEY)
 
 # Configurar o modelo
@@ -1018,7 +1023,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• Suporte prioritário\n"
             "• Recursos exclusivos\n\n"
             "🔑 *Chave PIX:*\n"
-            "`21972143081`\n\n"
+            "`123.456.789-00`\n\n"
             "📝 *Após o pagamento:*\n"
             "1. Clique em 'Enviar Comprovante'\n"
             "2. Envie o comprovante de pagamento\n"
@@ -1249,9 +1254,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     resposta = await processar_comando_ia(message, user_id, nome)
     await update.message.reply_text(resposta + "\n\nUtilize /ajuda para voltar ao menu.")
 
-def main():
-    """Inicia o bot"""
-    # Criar a aplicação
+async def health_check(request):
+    """Endpoint de health check para o Railway"""
+    return web.Response(text="Bot is running!")
+
+async def main():
+    """Inicia o bot e o servidor web"""
+    # Criar a aplicação do Telegram
     application = Application.builder().token(TELEGRAM_TOKEN).build()
 
     # Adicionar handlers
@@ -1271,29 +1280,39 @@ def main():
     # Adicionar handler para mensagens de texto
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
+    # Criar servidor web para health check
+    app = web.Application()
+    app.router.add_get('/health', health_check)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', int(os.getenv('PORT', 8000)))
+    await site.start()
+
     # Iniciar o bot com retentativas
     max_retries = 3
     retry_delay = 5  # segundos
     
     for attempt in range(max_retries):
         try:
-            print(f"🤖 Tentando iniciar o bot (tentativa {attempt + 1}/{max_retries})...")
-            application.run_polling()
+            logger.info(f"🤖 Tentando iniciar o bot (tentativa {attempt + 1}/{max_retries})...")
+            await application.initialize()
+            await application.start()
+            await application.run_polling()
             break
         except telegram.error.TimedOut:
             if attempt < max_retries - 1:
-                print(f"❌ Timeout na conexão. Tentando novamente em {retry_delay} segundos...")
-                time.sleep(retry_delay)
+                logger.warning(f"❌ Timeout na conexão. Tentando novamente em {retry_delay} segundos...")
+                await asyncio.sleep(retry_delay)
             else:
-                print("❌ Falha ao conectar após várias tentativas. Verifique sua conexão com a internet.")
+                logger.error("❌ Falha ao conectar após várias tentativas. Verifique sua conexão com a internet.")
         except Exception as e:
-            print(f"❌ Erro ao iniciar o bot: {str(e)}")
+            logger.error(f"❌ Erro ao iniciar o bot: {str(e)}")
             if attempt < max_retries - 1:
-                print(f"Tentando novamente em {retry_delay} segundos...")
-                time.sleep(retry_delay)
+                logger.info(f"Tentando novamente em {retry_delay} segundos...")
+                await asyncio.sleep(retry_delay)
             else:
-                print("❌ Falha ao iniciar o bot após várias tentativas.")
+                logger.error("❌ Falha ao iniciar o bot após várias tentativas.")
             break
 
 if __name__ == '__main__':
-    main() 
+    asyncio.run(main()) 
