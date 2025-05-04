@@ -8,7 +8,7 @@ import re
 import os
 import matplotlib.pyplot as plt
 from io import BytesIO
-from src.validadores import ValidadorEntrada
+from validadores import ValidadorEntrada
 
 # Configuração do logging
 logging.basicConfig(
